@@ -1,0 +1,7 @@
+{
+  "name": "Local Business Lead Scraper",
+  "description": "A powerful tool to discover local businesses via Google Maps data. Extract names, addresses, phone numbers, websites, and ratings to build your lead database. Supports CSV, Excel, and PDF exports.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
