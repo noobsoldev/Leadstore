@@ -58,11 +58,16 @@ const App: React.FC = () => {
     setFilters({ minRating: 0, minReviews: 0 }); // Reset filters on new search
 
     try {
-      const results = await geminiService.searchBusinesses(params, (p, msg) => {
-        setProgress(prev => ({ ...prev, percentage: p, message: msg }));
-      });
+      const results = await geminiService.searchBusinesses(
+        params, 
+        (p, msg) => {
+          setProgress(prev => ({ ...prev, percentage: p, message: msg }));
+        },
+        (newResults) => {
+          setBusinesses(prev => [...prev, ...newResults]);
+        }
+      );
       
-      setBusinesses(results);
       setProgress({ status: 'completed', percentage: 100, message: 'Extraction complete!' });
     } catch (err: any) {
       console.error(err);
@@ -280,7 +285,7 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Target size={16} className="text-blue-600" />
                   <p className="text-sm text-gray-500">
-                    &copy; {new Date().getFullYear()} Leadstore.online. All data extracted is publicly available.
+                    &copy; {new Date().getFullYear()} Leadstore.online. Developed by <a href="https://noobdev.tech/" target="_blank" rel="noopener noreferrer" className="hover:underline font-medium">Noob<span className="text-[#990000] font-bold">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies</a>.
                   </p>
                 </div>
                 <div className="flex items-center gap-6">
@@ -404,7 +409,7 @@ const App: React.FC = () => {
                   <div className="mt-8 pt-6 border-t border-gray-100 text-center">
                     <p className="text-xs text-gray-400 mb-2 uppercase tracking-widest font-bold">Powered By</p>
                     <a href="https://noobdev.tech/" target="_blank" rel="noopener noreferrer" className="text-lg font-bold hover:underline">
-                      Noob<span className="text-[#990000]">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
+                      Noob<span className="text-[#990000] font-bold">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
                     </a>
                   </div>
                 </div>

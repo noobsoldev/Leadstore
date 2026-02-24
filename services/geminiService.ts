@@ -47,48 +47,42 @@ export class GeminiService {
    */
   async searchBusinesses(
     params: SearchParams, 
-    onProgress: (p: number, msg: string) => void
+    onProgress: (p: number, msg: string) => void,
+    onResults?: (results: Business[]) => void
   ): Promise<Business[]> {
     const { location, niche, limit } = params;
-    const BATCH_SIZE = 50; // Increased batch size for faster extraction
+    const BATCH_SIZE = 15; // Smaller batch size for faster individual responses
     const maxBatches = Math.ceil(limit / BATCH_SIZE);
     
-    onProgress(5, `Initializing high-speed extraction for ${niche} in ${location}...`);
+    onProgress(5, `Starting real-time extraction for ${niche} in ${location}...`);
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const modelName = 'gemini-2.5-flash';
+    const seenIds = new Set<string>();
+    const allBusinesses: Business[] = [];
 
-    const executeBatchWithRetry = async (batchIdx: number, retryCount = 0): Promise<any[]> => {
+    const executeBatchWithRetry = async (batchIdx: number, retryCount = 0): Promise<Business[]> => {
       const currentBatchTarget = Math.min(BATCH_SIZE, limit - (batchIdx * BATCH_SIZE));
       if (currentBatchTarget <= 0) return [];
 
-      // Removed staggering for maximum speed
       try {
-        const variations = [
-          "Focus on the most prominent and high-rated businesses.",
-          "Include a diverse range of businesses across the area.",
-          "Ensure all contact details are accurately captured.",
-          "Look for businesses with the most recent reviews.",
-          "Prioritize businesses with verified profiles."
-        ];
-        const variation = variations[batchIdx % variations.length];
-
         const prompt = `
-          ACT AS A DATA EXTRACTION EXPERT.
-          TASK: Find and list ${currentBatchTarget} unique businesses for "${niche}" in "${location}".
-          ${variation}
+          DATA_EXTRACTION_MODE: ACTIVE
+          TARGET: ${currentBatchTarget} unique businesses
+          NICHE: "${niche}"
+          LOCATION: "${location}"
           
-          REQUIRED FIELDS FOR EACH:
-          - name: Business Name
-          - address: Full Physical Address
-          - phone: Phone Number (formatted)
-          - website: Official Website URL
-          - profileLink: Google Maps/GMB Profile URL
-          - rating: Numerical Rating (e.g. 4.5)
-          - reviewCount: Total Number of Reviews
+          OUTPUT_FIELDS:
+          - name
+          - address
+          - phone
+          - website
+          - profileLink (Google Maps URL)
+          - rating (number)
+          - reviewCount (number)
 
-          RESPONSE FORMAT: A PURE JSON ARRAY OF OBJECTS.
-          NO PREAMBLE. NO MARKDOWN BLOCKS. JUST THE JSON.
+          FORMAT: PURE_JSON_ARRAY
+          NO_TEXT_OUTSIDE_JSON
         `;
 
         const response = await ai.models.generateContent({
@@ -96,73 +90,75 @@ export class GeminiService {
           contents: prompt,
           config: {
             tools: [{ googleMaps: {} }],
-            temperature: 0.4, // Lower temperature for more consistent JSON
+            temperature: 0.2, // Even lower for speed and precision
           },
         });
 
         const text = response.text || "";
-        // Try to find JSON even if model adds text
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         
         if (jsonMatch) {
-          try {
-            return JSON.parse(jsonMatch[0]);
-          } catch (e) {
-            console.error("JSON Parse Error in batch:", e);
-            return [];
+          const rawResults = JSON.parse(jsonMatch[0]);
+          const processedResults: Business[] = [];
+
+          rawResults.forEach((item: any, idx: number) => {
+            if (!item || !item.name) return;
+            const uniqueKey = `${item.name}-${item.phone || item.address}`.toLowerCase();
+            
+            if (!seenIds.has(uniqueKey)) {
+              seenIds.add(uniqueKey);
+              const business: Business = {
+                id: `${Date.now()}-${batchIdx}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+                name: item.name || "N/A",
+                address: item.address || "N/A",
+                phone: item.phone || "N/A",
+                website: item.website || "N/A",
+                profileLink: item.profileLink || "N/A",
+                rating: item.rating || 0,
+                reviewCount: item.reviewCount || 0,
+              };
+              processedResults.push(business);
+            }
+          });
+
+          if (onResults && processedResults.length > 0) {
+            onResults(processedResults);
           }
+          return processedResults;
         }
         return [];
       } catch (error: any) {
-        console.error(`Error in batch ${batchIdx} (Attempt ${retryCount + 1}):`, error);
-        
-        if (retryCount < 2) {
-          const delay = 1000; // Faster retry
-          await new Promise(resolve => setTimeout(resolve, delay));
+        console.error(`Batch ${batchIdx} error:`, error);
+        if (retryCount < 1) { // Reduced retries for speed
+          await new Promise(resolve => setTimeout(resolve, 500));
           return executeBatchWithRetry(batchIdx, retryCount + 1);
         }
         return [];
       }
     };
 
-    // Create batch tasks
-    const batchPromises = Array.from({ length: maxBatches }).map((_, i) => executeBatchWithRetry(i));
+    // Execute batches in parallel with a slight delay to avoid burst limits
+    const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
+      await new Promise(resolve => setTimeout(resolve, i * 200)); // Stagger slightly to avoid rate limits
+      const batchResults = await executeBatchWithRetry(i);
+      return batchResults;
+    });
 
-    // Monitor progress of parallel batches
     let completedBatches = 0;
     const results = await Promise.all(batchPromises.map(p => p.then(res => {
       completedBatches++;
       const progress = 10 + (completedBatches / maxBatches) * 85;
-      onProgress(Math.round(progress), `Extracted batch ${completedBatches} of ${maxBatches}...`);
+      onProgress(Math.round(progress), `Extracted ${seenIds.size} leads so far...`);
       return res;
     })));
 
-    // Flatten and deduplicate
-    const allBusinesses: Business[] = [];
-    const seenIds = new Set<string>();
-
-    results.flat().forEach((item: any, idx: number) => {
-      if (!item || !item.name) return;
-
-      // Simple deduplication key
-      const uniqueKey = `${item.name}-${item.phone || item.address}`.toLowerCase();
-      
-      if (!seenIds.has(uniqueKey) && allBusinesses.length < limit) {
-        seenIds.add(uniqueKey);
-        allBusinesses.push({
-          id: `${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
-          name: item.name || "N/A",
-          address: item.address || "N/A",
-          phone: item.phone || "N/A",
-          website: item.website || "N/A",
-          profileLink: item.profileLink || "N/A",
-          rating: item.rating || 0,
-          reviewCount: item.reviewCount || 0,
-        });
+    results.flat().forEach(b => {
+      if (allBusinesses.length < limit) {
+        allBusinesses.push(b);
       }
     });
 
-    onProgress(100, `Successfully extracted ${allBusinesses.length} unique leads.`);
+    onProgress(100, `Extraction complete. Found ${allBusinesses.length} unique leads.`);
     return allBusinesses;
   }
 }

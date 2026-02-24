@@ -153,7 +153,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
               {[
                 {
                   icon: <Search className="text-blue-600" />,
-                  title: "Local SEO Lead Discovery",
+                  title: "Local Lead Discovery",
                   desc: "Find businesses in any niche, optimized for local SEO discovery and outreach."
                 },
                 {
@@ -217,7 +217,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
                 <div className="pt-6 border-t border-gray-800">
                   <p className="text-sm text-gray-500 mb-2 uppercase tracking-widest font-bold">Developed By</p>
                   <h3 className="text-2xl font-bold">
-                    Noob<span className="text-[#990000]">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
+                    Noob<span className="text-[#990000] font-bold">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
                   </h3>
                 </div>
               </div>
@@ -311,7 +311,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
             <span className="font-bold tracking-tight">Leadstore.online</span>
           </div>
           <p className="text-gray-500 text-sm">
-            &copy; {new Date().getFullYear()} Leadstore.online. Developed by <a href="https://noobdev.tech/" target="_blank" rel="noopener noreferrer" className="hover:underline">Noob<span className="text-[#990000]">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies</a>.
+            &copy; {new Date().getFullYear()} Leadstore.online. Developed by <a href="https://noobdev.tech/" target="_blank" rel="noopener noreferrer" className="hover:underline">Noob<span className="text-[#990000] font-bold">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies</a>.
           </p>
           <div className="flex gap-6 text-sm text-gray-400">
             <button onClick={() => setActiveModal('privacy')} className="hover:text-gray-600">Privacy</button>
@@ -427,7 +427,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
               <div className="mt-8 pt-6 border-t border-gray-100 text-center">
                 <p className="text-xs text-gray-400 mb-2 uppercase tracking-widest font-bold">Powered By</p>
                 <a href="https://noobdev.tech/" target="_blank" rel="noopener noreferrer" className="text-lg font-bold hover:underline">
-                  Noob<span className="text-[#990000]">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
+                  Noob<span className="text-[#990000] font-bold">{'{'}</span>Dev<span className="text-[#990000] font-bold">{'}'}</span> Technologies
                 </a>
               </div>
             </div>
