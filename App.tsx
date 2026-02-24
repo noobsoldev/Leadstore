@@ -68,10 +68,18 @@ const App: React.FC = () => {
         }
       );
       
-      setProgress({ status: 'completed', percentage: 100, message: 'Extraction complete!' });
+      if (results.length === 0) {
+        setError("No results found. This might be due to a very specific niche/location or temporary API limitations. Try a broader search.");
+        setProgress({ status: 'completed', percentage: 100, message: 'No leads found.' });
+      } else {
+        setProgress({ status: 'completed', percentage: 100, message: 'Extraction complete!' });
+      }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'An unexpected error occurred during data extraction.');
+      const errorMsg = err.message?.includes('429') 
+        ? 'API Rate Limit reached. Please wait a minute before trying again.' 
+        : (err.message || 'An unexpected error occurred during data extraction.');
+      setError(errorMsg);
       setProgress({ status: 'error', percentage: 0, message: 'Extraction failed.' });
     }
   };
@@ -144,6 +152,14 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="hidden sm:flex items-center gap-6">
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-colors"
+                  title="Hard reset the application"
+                >
+                  <RefreshCcw size={16} />
+                  <span>Reset App</span>
+                </button>
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <ShieldCheck size={16} className="text-emerald-500" />
                   <span>Public Data Compliant</span>

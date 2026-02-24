@@ -2,6 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Business, SearchParams, LocationSuggestion } from "../types";
 
+// Reuse instance to improve performance and avoid potential initialization overhead
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 export class GeminiService {
   /**
    * Fetches location suggestions using Gemini's Google Maps grounding tool.
@@ -10,9 +13,8 @@ export class GeminiService {
     if (!input || input.trim().length < 2) return [];
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const modelName = 'gemini-3-flash-preview'; // Use a valid model name
-      const prompt = `Suggest up to 5 real-world locations (cities, neighborhoods, or regions) matching "${input}". Provide a brief description for each.`;
+      const modelName = 'gemini-3-flash-preview'; 
+      const prompt = `Quickly list 5 real-world locations (City, State/Country) matching "${input}". Return as JSON array of {name, description}.`;
 
       const response = await ai.models.generateContent({
         model: modelName,
@@ -35,8 +37,41 @@ export class GeminiService {
 
       const text = response.text || "[]";
       return JSON.parse(text);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message?.includes('429') || error?.status === 429) {
+        console.warn("Location suggestion rate limited");
+      }
       console.error("Location Suggestion Error:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetches niche/category suggestions.
+   */
+  async suggestNiches(input: string): Promise<string[]> {
+    if (!input || input.trim().length < 2) return [];
+
+    try {
+      const modelName = 'gemini-3-flash-preview'; 
+      const prompt = `Quickly list 5 business categories or niches matching "${input}". Return as a simple JSON string array.`;
+
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        },
+      });
+
+      const text = response.text || "[]";
+      return JSON.parse(text);
+    } catch (error) {
+      console.error("Niche Suggestion Error:", error);
       return [];
     }
   }
@@ -56,7 +91,6 @@ export class GeminiService {
     
     onProgress(5, `Starting real-time extraction for ${niche} in ${location}...`);
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const modelName = 'gemini-2.5-flash';
     const seenIds = new Set<string>();
     const allBusinesses: Business[] = [];
@@ -68,9 +102,14 @@ export class GeminiService {
       try {
         const prompt = `
           DATA_EXTRACTION_MODE: ACTIVE
-          TARGET: ${currentBatchTarget} unique businesses
+          TASK: Find and list ${currentBatchTarget} unique businesses.
           NICHE: "${niche}"
           LOCATION: "${location}"
+          
+          INSTRUCTIONS:
+          - Be thorough. Search across the entire specified location.
+          - Include all relevant businesses matching the niche.
+          - Ensure data accuracy for phone numbers and addresses.
           
           OUTPUT_FIELDS:
           - name
@@ -90,7 +129,7 @@ export class GeminiService {
           contents: prompt,
           config: {
             tools: [{ googleMaps: {} }],
-            temperature: 0.2, // Even lower for speed and precision
+            temperature: 0.1, // Even lower for maximum speed and precision
           },
         });
 
@@ -129,8 +168,16 @@ export class GeminiService {
         return [];
       } catch (error: any) {
         console.error(`Batch ${batchIdx} error:`, error);
-        if (retryCount < 1) { // Reduced retries for speed
-          await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check for rate limit (429)
+        if (error?.message?.includes('429') || error?.status === 429) {
+          onProgress(Math.round(10 + (completedBatches / maxBatches) * 85), "Rate limit reached. Waiting 5 seconds...");
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          return executeBatchWithRetry(batchIdx, retryCount); // Retry without incrementing count for rate limits
+        }
+
+        if (retryCount < 1) { 
+          await new Promise(resolve => setTimeout(resolve, 1000));
           return executeBatchWithRetry(batchIdx, retryCount + 1);
         }
         return [];
@@ -139,7 +186,7 @@ export class GeminiService {
 
     // Execute batches in parallel with a slight delay to avoid burst limits
     const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
-      await new Promise(resolve => setTimeout(resolve, i * 200)); // Stagger slightly to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, i * 150)); // Slightly faster stagger
       const batchResults = await executeBatchWithRetry(i);
       return batchResults;
     });
