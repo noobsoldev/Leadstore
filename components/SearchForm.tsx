@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, MapPin, Briefcase, ChevronDown, Navigation, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { SearchParams, LocationSuggestion } from '../types';
 import { geminiService } from '../services/geminiService';
 
@@ -41,10 +42,17 @@ const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) => {
     }
 
     setIsSuggesting(true);
-    const results = await geminiService.suggestLocations(val);
-    setSuggestions(results);
-    setIsSuggesting(false);
-    setShowSuggestions(true);
+    try {
+      const results = await geminiService.suggestLocations(val);
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+    } catch (error) {
+      console.error("Suggestion error:", error);
+      setSuggestions([]);
+      setShowSuggestions(false);
+    } finally {
+      setIsSuggesting(false);
+    }
   };
 
   const handleLocationChange = (val: string) => {
@@ -149,11 +157,18 @@ const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) => {
               autoComplete="off"
               required
             />
-            {isSuggesting && (
-              <div className="absolute right-3 top-2.5">
-                <Loader2 size={16} className="text-gray-400 animate-spin" />
-              </div>
-            )}
+            <AnimatePresence>
+              {isSuggesting && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="absolute right-3 top-2.5"
+                >
+                  <Loader2 size={18} className="text-blue-600 animate-spin" />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Suggestions Dropdown */}

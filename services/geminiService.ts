@@ -11,7 +11,7 @@ export class GeminiService {
     if (!input || input.trim().length === 0) return [];
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const modelName = 'gemini-2.5-flash';
       const prompt = `
         Based on the input "${input}", suggest up to 5 real-world locations (cities, neighborhoods, or regions).
@@ -53,7 +53,7 @@ export class GeminiService {
     
     onProgress(5, `Initializing parallel extraction for ${niche} in ${location}...`);
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const modelName = 'gemini-2.5-flash';
 
     // Create batch tasks

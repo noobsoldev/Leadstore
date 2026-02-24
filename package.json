@@ -1,5 +1,5 @@
 {
-  "name": "local-business-lead-scraper",
+  "name": "leadstore-online",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,10 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
     "@google/genai": "^1.40.0",
-    "lucide-react": "^0.563.0"
+    "lucide-react": "^0.563.0",
+    "motion": "^12.34.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
