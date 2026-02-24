@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { Business, SearchParams, LocationSuggestion } from "../types";
 
 export class GeminiService {
@@ -7,32 +7,34 @@ export class GeminiService {
    * Fetches location suggestions using Gemini's Google Maps grounding tool.
    */
   async suggestLocations(input: string): Promise<LocationSuggestion[]> {
-    // Allow suggestions for even single character inputs to improve responsiveness
-    if (!input || input.trim().length === 0) return [];
+    if (!input || input.trim().length < 2) return [];
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const modelName = 'gemini-2.5-flash';
-      const prompt = `
-        Based on the input "${input}", suggest up to 5 real-world locations (cities, neighborhoods, or regions).
-        Even if the input is short, provide the most likely intended locations.
-        Format your response strictly as a JSON array of objects with keys "name" and "description".
-        Only return the JSON.
-      `;
+      const modelName = 'gemini-3-flash-preview'; // Use a valid model name
+      const prompt = `Suggest up to 5 real-world locations (cities, neighborhoods, or regions) matching "${input}". Provide a brief description for each.`;
 
       const response = await ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
-          tools: [{ googleMaps: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "City or location name" },
+                description: { type: Type.STRING, description: "State, Country or region" }
+              },
+              required: ["name", "description"]
+            }
+          }
         },
       });
 
-      const text = response.text || "";
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) return [];
-
-      return JSON.parse(jsonMatch[0]);
+      const text = response.text || "[]";
+      return JSON.parse(text);
     } catch (error) {
       console.error("Location Suggestion Error:", error);
       return [];

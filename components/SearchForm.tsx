@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Briefcase, ChevronDown, Navigation, Loader2 } from 'lucide-react';
+import { Search, MapPin, Briefcase, ChevronDown, Navigation, Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SearchParams, LocationSuggestion } from '../types';
 import { geminiService } from '../services/geminiService';
@@ -60,10 +60,10 @@ const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) => {
     
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-    if (val.length > 0) {
+    if (val.length > 1) {
       debounceTimer.current = setTimeout(() => {
         triggerSuggestions(val);
-      }, 500); // Slightly faster debounce for immediate feel
+      }, 300); // Faster debounce
     } else {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -146,29 +146,39 @@ const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) => {
               Current
             </button>
           </label>
-          <div className="relative">
+          <div className="relative group">
             <input
               type="text"
               placeholder="e.g. London, NYC"
-              className="w-full bg-white text-gray-900 px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+              className="w-full bg-white text-gray-900 px-4 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               value={params.location}
               onChange={(e) => handleLocationChange(e.target.value)}
               onFocus={handleFocus}
               autoComplete="off"
               required
             />
-            <AnimatePresence>
-              {isSuggesting && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  className="absolute right-3 top-2.5"
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {params.location && (
+                <button 
+                  type="button"
+                  onClick={() => handleLocationChange('')}
+                  className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  <Loader2 size={18} className="text-blue-600 animate-spin" />
-                </motion.div>
+                  <X size={14} />
+                </button>
               )}
-            </AnimatePresence>
+              <AnimatePresence>
+                {isSuggesting && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                  >
+                    <Loader2 size={16} className="text-blue-600 animate-spin" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           {/* Suggestions Dropdown */}
