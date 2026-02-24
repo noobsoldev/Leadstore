@@ -5,6 +5,9 @@ import { Business, SearchParams, LocationSuggestion } from "../types";
 // Reuse instance to improve performance and avoid potential initialization overhead
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// Track last search completion to enforce a small cooldown between searches
+let lastSearchEndTime = 0;
+
 export class GeminiService {
   /**
    * Fetches location suggestions using Gemini's Google Maps grounding tool.
@@ -70,7 +73,10 @@ export class GeminiService {
 
       const text = response.text || "[]";
       return JSON.parse(text);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message?.includes('429') || error?.status === 429) {
+        console.warn("Niche suggestion rate limited");
+      }
       console.error("Niche Suggestion Error:", error);
       return [];
     }
@@ -86,6 +92,16 @@ export class GeminiService {
     onResults?: (results: Business[]) => void
   ): Promise<Business[]> {
     const { location, niche, limit } = params;
+    
+    // Enforce a minimum cooldown between searches to protect the free API quota
+    const now = Date.now();
+    const cooldownMs = 5000;
+    if (now - lastSearchEndTime < cooldownMs) {
+      const remaining = Math.ceil((cooldownMs - (now - lastSearchEndTime)) / 1000);
+      onProgress(0, `To help the environment and keep this app free, please wait ${remaining} seconds before starting a new search.`);
+      await new Promise(resolve => setTimeout(resolve, cooldownMs - (now - lastSearchEndTime)));
+    }
+
     const BATCH_SIZE = 15; // Smaller batch size for faster individual responses
     const maxBatches = Math.ceil(limit / BATCH_SIZE);
     
@@ -171,8 +187,12 @@ export class GeminiService {
         
         // Check for rate limit (429)
         if (error?.message?.includes('429') || error?.status === 429) {
-          onProgress(Math.round(10 + (completedBatches / maxBatches) * 85), "Rate limit reached. Waiting 5 seconds...");
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          const waitSeconds = 10;
+          onProgress(
+            Math.round(10 + (completedBatches / maxBatches) * 85), 
+            `To help the environment and keep this app free, we recommend you to wait for ${waitSeconds} seconds. Managing pause time...`
+          );
+          await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
           return executeBatchWithRetry(batchIdx, retryCount); // Retry without incrementing count for rate limits
         }
 
@@ -184,29 +204,33 @@ export class GeminiService {
       }
     };
 
-    // Execute batches in parallel with a slight delay to avoid burst limits
-    const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
-      await new Promise(resolve => setTimeout(resolve, i * 150)); // Slightly faster stagger
-      const batchResults = await executeBatchWithRetry(i);
-      return batchResults;
-    });
+    try {
+      // Execute batches in parallel with a slight delay to avoid burst limits
+      const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
+        await new Promise(resolve => setTimeout(resolve, i * 150)); // Slightly faster stagger
+        const batchResults = await executeBatchWithRetry(i);
+        return batchResults;
+      });
 
-    let completedBatches = 0;
-    const results = await Promise.all(batchPromises.map(p => p.then(res => {
-      completedBatches++;
-      const progress = 10 + (completedBatches / maxBatches) * 85;
-      onProgress(Math.round(progress), `Extracted ${seenIds.size} leads so far...`);
-      return res;
-    })));
+      let completedBatches = 0;
+      const results = await Promise.all(batchPromises.map(p => p.then(res => {
+        completedBatches++;
+        const progress = 10 + (completedBatches / maxBatches) * 85;
+        onProgress(Math.round(progress), `Extracted ${seenIds.size} leads so far...`);
+        return res;
+      })));
 
-    results.flat().forEach(b => {
-      if (allBusinesses.length < limit) {
-        allBusinesses.push(b);
-      }
-    });
+      results.flat().forEach(b => {
+        if (allBusinesses.length < limit) {
+          allBusinesses.push(b);
+        }
+      });
 
-    onProgress(100, `Extraction complete. Found ${allBusinesses.length} unique leads.`);
-    return allBusinesses;
+      onProgress(100, `Extraction complete. Found ${allBusinesses.length} unique leads.`);
+      return allBusinesses;
+    } finally {
+      lastSearchEndTime = Date.now();
+    }
   }
 }
 

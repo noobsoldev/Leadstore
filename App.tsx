@@ -77,7 +77,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       const errorMsg = err.message?.includes('429') 
-        ? 'API Rate Limit reached. Please wait a minute before trying again.' 
+        ? 'API Rate Limit reached. To help the environment and keep this app free, we recommend you to wait for a minute before trying again.' 
         : (err.message || 'An unexpected error occurred during data extraction.');
       setError(errorMsg);
       setProgress({ status: 'error', percentage: 0, message: 'Extraction failed.' });
