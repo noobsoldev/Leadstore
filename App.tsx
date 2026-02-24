@@ -288,6 +288,7 @@ const App: React.FC = () => {
                     No-API-Key Required Tool
                   </span>
                   <div className="flex gap-4">
+                    <button onClick={() => setShowApp(false)} className="text-sm text-gray-400 hover:text-gray-600">About</button>
                     <button onClick={() => setActiveModal('privacy')} className="text-sm text-gray-400 hover:text-gray-600">Privacy Policy</button>
                     <button onClick={() => setActiveModal('terms')} className="text-sm text-gray-400 hover:text-gray-600">Terms of Service</button>
                     <button onClick={() => setActiveModal('contact')} className="text-sm text-gray-400 hover:text-gray-600">Contact</button>

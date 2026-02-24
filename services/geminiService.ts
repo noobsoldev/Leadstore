@@ -48,46 +48,45 @@ export class GeminiService {
     onProgress: (p: number, msg: string) => void
   ): Promise<Business[]> {
     const { location, niche, limit } = params;
-    const BATCH_SIZE = 25; 
+    const BATCH_SIZE = 50; // Increased batch size for faster extraction
     const maxBatches = Math.ceil(limit / BATCH_SIZE);
     
-    onProgress(5, `Initializing parallel extraction for ${niche} in ${location}...`);
+    onProgress(5, `Initializing high-speed extraction for ${niche} in ${location}...`);
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const modelName = 'gemini-2.5-flash';
 
-    // Create batch tasks
-    const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
-      const currentBatchTarget = Math.min(BATCH_SIZE, limit - (i * BATCH_SIZE));
+    const executeBatchWithRetry = async (batchIdx: number, retryCount = 0): Promise<any[]> => {
+      const currentBatchTarget = Math.min(BATCH_SIZE, limit - (batchIdx * BATCH_SIZE));
       if (currentBatchTarget <= 0) return [];
 
+      // Removed staggering for maximum speed
       try {
-        // We add a slight variation to the prompt for each batch to encourage the model 
-        // to explore different parts of the search space since we can't do sequential deduplication easily in parallel.
         const variations = [
-          "Focus on the most popular results.",
-          "Include some highly-rated but potentially less known results.",
-          "Look for results in different neighborhoods or areas.",
-          "Ensure a wide variety of results are captured.",
-          "Prioritize results with complete contact information."
+          "Focus on the most prominent and high-rated businesses.",
+          "Include a diverse range of businesses across the area.",
+          "Ensure all contact details are accurately captured.",
+          "Look for businesses with the most recent reviews.",
+          "Prioritize businesses with verified profiles."
         ];
-        const variation = variations[i % variations.length];
+        const variation = variations[batchIdx % variations.length];
 
         const prompt = `
-          Search for and list at least ${currentBatchTarget} unique publicly listed businesses for the niche "${niche}" in "${location}". 
+          ACT AS A DATA EXTRACTION EXPERT.
+          TASK: Find and list ${currentBatchTarget} unique businesses for "${niche}" in "${location}".
           ${variation}
           
-          For each business, extract:
-          - Business Name
-          - Full Address
-          - Phone Number
-          - Website URL
-          - Google Maps/GMB Profile Link
-          - Rating (number)
-          - Number of Reviews (number)
+          REQUIRED FIELDS FOR EACH:
+          - name: Business Name
+          - address: Full Physical Address
+          - phone: Phone Number (formatted)
+          - website: Official Website URL
+          - profileLink: Google Maps/GMB Profile URL
+          - rating: Numerical Rating (e.g. 4.5)
+          - reviewCount: Total Number of Reviews
 
-          FORMAT RESPONSE AS A VALID JSON ARRAY OF OBJECTS with keys: "name", "address", "phone", "website", "profileLink", "rating", "reviewCount".
-          Return ONLY the JSON array.
+          RESPONSE FORMAT: A PURE JSON ARRAY OF OBJECTS.
+          NO PREAMBLE. NO MARKDOWN BLOCKS. JUST THE JSON.
         `;
 
         const response = await ai.models.generateContent({
@@ -95,22 +94,37 @@ export class GeminiService {
           contents: prompt,
           config: {
             tools: [{ googleMaps: {} }],
-            temperature: 0.8, // Slightly higher to encourage diversity across parallel calls
+            temperature: 0.4, // Lower temperature for more consistent JSON
           },
         });
 
         const text = response.text || "";
+        // Try to find JSON even if model adds text
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         
         if (jsonMatch) {
-          return JSON.parse(jsonMatch[0]);
+          try {
+            return JSON.parse(jsonMatch[0]);
+          } catch (e) {
+            console.error("JSON Parse Error in batch:", e);
+            return [];
+          }
         }
         return [];
-      } catch (error) {
-        console.error(`Error in parallel batch ${i}:`, error);
+      } catch (error: any) {
+        console.error(`Error in batch ${batchIdx} (Attempt ${retryCount + 1}):`, error);
+        
+        if (retryCount < 2) {
+          const delay = 1000; // Faster retry
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return executeBatchWithRetry(batchIdx, retryCount + 1);
+        }
         return [];
       }
-    });
+    };
+
+    // Create batch tasks
+    const batchPromises = Array.from({ length: maxBatches }).map((_, i) => executeBatchWithRetry(i));
 
     // Monitor progress of parallel batches
     let completedBatches = 0;
