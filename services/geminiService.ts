@@ -1,89 +1,54 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { Business, SearchParams, LocationSuggestion } from "../types";
-
-// Reuse instance to improve performance and avoid potential initialization overhead
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Track last search completion to enforce a small cooldown between searches
 let lastSearchEndTime = 0;
 
 export class GeminiService {
   /**
-   * Fetches location suggestions using Gemini's Google Maps grounding tool.
+   * Fetches location suggestions using backend API.
    */
   async suggestLocations(input: string): Promise<LocationSuggestion[]> {
     if (!input || input.trim().length < 2) return [];
 
     try {
-      const modelName = 'gemini-3-flash-preview'; 
-      const prompt = `Quickly list 5 real-world locations (City, State/Country) matching "${input}". Return as JSON array of {name, description}.`;
-
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING, description: "City or location name" },
-                description: { type: Type.STRING, description: "State, Country or region" }
-              },
-              required: ["name", "description"]
-            }
-          }
-        },
+      const response = await fetch("/api/suggestions/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
       });
 
-      const text = response.text || "[]";
-      return JSON.parse(text);
+      if (!response.ok) throw new Error("Failed to fetch suggestions");
+      return await response.json();
     } catch (error: any) {
-      if (error?.message?.includes('429') || error?.status === 429) {
-        console.warn("Location suggestion rate limited");
-      }
       console.error("Location Suggestion Error:", error);
       return [];
     }
   }
 
   /**
-   * Fetches niche/category suggestions.
+   * Fetches niche/category suggestions using backend API.
    */
   async suggestNiches(input: string): Promise<string[]> {
     if (!input || input.trim().length < 2) return [];
 
     try {
-      const modelName = 'gemini-3-flash-preview'; 
-      const prompt = `Quickly list 5 business categories or niches matching "${input}". Return as a simple JSON string array.`;
-
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          }
-        },
+      const response = await fetch("/api/suggestions/niches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
       });
 
-      const text = response.text || "[]";
-      return JSON.parse(text);
+      if (!response.ok) throw new Error("Failed to fetch niche suggestions");
+      return await response.json();
     } catch (error: any) {
-      if (error?.message?.includes('429') || error?.status === 429) {
-        console.warn("Niche suggestion rate limited");
-      }
       console.error("Niche Suggestion Error:", error);
       return [];
     }
   }
 
   /**
-   * Fetches businesses using Gemini's Google Maps grounding tool.
+   * Fetches businesses using backend API.
    * Parallelizes batches to significantly improve speed.
    */
   async searchBusinesses(
@@ -91,7 +56,7 @@ export class GeminiService {
     onProgress: (p: number, msg: string) => void,
     onResults?: (results: Business[]) => void
   ): Promise<Business[]> {
-    const { location, niche, limit } = params;
+    const { limit } = params;
     
     // Enforce a minimum cooldown between searches to protect the free API quota
     const now = Date.now();
@@ -102,12 +67,11 @@ export class GeminiService {
       await new Promise(resolve => setTimeout(resolve, cooldownMs - (now - lastSearchEndTime)));
     }
 
-    const BATCH_SIZE = 15; // Smaller batch size for faster individual responses
+    const BATCH_SIZE = 15; 
     const maxBatches = Math.ceil(limit / BATCH_SIZE);
     
-    onProgress(5, `Starting real-time extraction for ${niche} in ${location}...`);
+    onProgress(5, `Starting real-time extraction...`);
 
-    const modelName = 'gemini-2.5-flash';
     const seenIds = new Set<string>();
     const allBusinesses: Business[] = [];
 
@@ -116,84 +80,56 @@ export class GeminiService {
       if (currentBatchTarget <= 0) return [];
 
       try {
-        const prompt = `
-          DATA_EXTRACTION_MODE: ACTIVE
-          TASK: Find and list ${currentBatchTarget} unique businesses.
-          NICHE: "${niche}"
-          LOCATION: "${location}"
-          
-          INSTRUCTIONS:
-          - Be thorough. Search across the entire specified location.
-          - Include all relevant businesses matching the niche.
-          - Ensure data accuracy for phone numbers and addresses.
-          
-          OUTPUT_FIELDS:
-          - name
-          - address
-          - phone
-          - website
-          - profileLink (Google Maps URL)
-          - rating (number)
-          - reviewCount (number)
-
-          FORMAT: PURE_JSON_ARRAY
-          NO_TEXT_OUTSIDE_JSON
-        `;
-
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            tools: [{ googleMaps: {} }],
-            temperature: 0.1, // Even lower for maximum speed and precision
-          },
+        const response = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ params, batchIdx, currentBatchTarget }),
         });
 
-        const text = response.text || "";
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        
-        if (jsonMatch) {
-          const rawResults = JSON.parse(jsonMatch[0]);
-          const processedResults: Business[] = [];
-
-          rawResults.forEach((item: any, idx: number) => {
-            if (!item || !item.name) return;
-            const uniqueKey = `${item.name}-${item.phone || item.address}`.toLowerCase();
-            
-            if (!seenIds.has(uniqueKey)) {
-              seenIds.add(uniqueKey);
-              const business: Business = {
-                id: `${Date.now()}-${batchIdx}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-                name: item.name || "N/A",
-                address: item.address || "N/A",
-                phone: item.phone || "N/A",
-                website: item.website || "N/A",
-                profileLink: item.profileLink || "N/A",
-                rating: item.rating || 0,
-                reviewCount: item.reviewCount || 0,
-              };
-              processedResults.push(business);
-            }
-          });
-
-          if (onResults && processedResults.length > 0) {
-            onResults(processedResults);
-          }
-          return processedResults;
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw { status: response.status, message: errorData.error || "Search failed" };
         }
-        return [];
+
+        const rawResults = await response.json();
+        const processedResults: Business[] = [];
+
+        rawResults.forEach((item: any, idx: number) => {
+          if (!item || !item.name) return;
+          const uniqueKey = `${item.name}-${item.phone || item.address}`.toLowerCase();
+          
+          if (!seenIds.has(uniqueKey)) {
+            seenIds.add(uniqueKey);
+            const business: Business = {
+              id: `${Date.now()}-${batchIdx}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+              name: item.name || "N/A",
+              address: item.address || "N/A",
+              phone: item.phone || "N/A",
+              website: item.website || "N/A",
+              profileLink: item.profileLink || "N/A",
+              rating: item.rating || 0,
+              reviewCount: item.reviewCount || 0,
+            };
+            processedResults.push(business);
+          }
+        });
+
+        if (onResults && processedResults.length > 0) {
+          onResults(processedResults);
+        }
+        return processedResults;
       } catch (error: any) {
         console.error(`Batch ${batchIdx} error:`, error);
         
         // Check for rate limit (429)
-        if (error?.message?.includes('429') || error?.status === 429) {
+        if (error?.status === 429 || error?.message?.includes('429')) {
           const waitSeconds = 10;
           onProgress(
             Math.round(10 + (completedBatches / maxBatches) * 85), 
             `To help the environment and keep this app free, we recommend you to wait for ${waitSeconds} seconds. Managing pause time...`
           );
           await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
-          return executeBatchWithRetry(batchIdx, retryCount); // Retry without incrementing count for rate limits
+          return executeBatchWithRetry(batchIdx, retryCount); 
         }
 
         if (retryCount < 1) { 
@@ -204,15 +140,15 @@ export class GeminiService {
       }
     };
 
+    let completedBatches = 0;
     try {
       // Execute batches in parallel with a slight delay to avoid burst limits
       const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
-        await new Promise(resolve => setTimeout(resolve, i * 150)); // Slightly faster stagger
+        await new Promise(resolve => setTimeout(resolve, i * 150)); 
         const batchResults = await executeBatchWithRetry(i);
         return batchResults;
       });
 
-      let completedBatches = 0;
       const results = await Promise.all(batchPromises.map(p => p.then(res => {
         completedBatches++;
         const progress = 10 + (completedBatches / maxBatches) * 85;
