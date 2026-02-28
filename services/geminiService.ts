@@ -6,6 +6,18 @@ let lastSearchEndTime = 0;
 
 export class GeminiService {
   /**
+   * Checks server health.
+   */
+  async checkHealth(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await fetch("/api/health");
+      return await response.json();
+    } catch (error) {
+      return { status: "error", message: "Cannot connect to backend server." };
+    }
+  }
+
+  /**
    * Fetches location suggestions using backend API.
    */
   async suggestLocations(input: string): Promise<LocationSuggestion[]> {
@@ -18,7 +30,10 @@ export class GeminiService {
         body: JSON.stringify({ input }),
       });
 
-      if (!response.ok) throw new Error("Failed to fetch suggestions");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch suggestions");
+      }
       return await response.json();
     } catch (error: any) {
       console.error("Location Suggestion Error:", error);
@@ -39,7 +54,10 @@ export class GeminiService {
         body: JSON.stringify({ input }),
       });
 
-      if (!response.ok) throw new Error("Failed to fetch niche suggestions");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch niche suggestions");
+      }
       return await response.json();
     } catch (error: any) {
       console.error("Niche Suggestion Error:", error);

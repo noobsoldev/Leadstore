@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Target, Search, ShieldCheck, AlertCircle, Info, RefreshCcw, X, User, Mail, Smartphone, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LandingPage } from './components/LandingPage';
@@ -50,6 +50,20 @@ const App: React.FC = () => {
     message: ''
   });
   const [error, setError] = useState<string | null>(null);
+  const [serverStatus, setServerStatus] = useState<{ status: string; message: string } | null>(null);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      const status = await geminiService.checkHealth();
+      setServerStatus(status);
+      if (status.status === 'error') {
+        setError(status.message);
+      }
+    };
+    if (showApp) {
+      checkHealth();
+    }
+  }, [showApp]);
 
   const handleSearch = async (params: SearchParams) => {
     setError(null);
@@ -186,6 +200,17 @@ const App: React.FC = () => {
                   Enter a location and a business niche to scrape publicly visible details from Google Business Profiles.
                 </p>
               </div>
+
+              {serverStatus?.status === 'error' && (
+                <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-700">
+                  <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <p className="font-bold">System Configuration Required</p>
+                    <p className="text-sm">{serverStatus.message}</p>
+                    <p className="text-xs mt-2">Please ensure you have added the <code>GEMINI_API_KEY</code> to your environment variables.</p>
+                  </div>
+                </div>
+              )}
 
               <SearchForm onSearch={handleSearch} isLoading={progress.status === 'searching'} />
 
