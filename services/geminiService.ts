@@ -1,10 +1,26 @@
 
+import { GoogleGenAI, Type } from "@google/genai";
 import { Business, SearchParams, LocationSuggestion } from "../types";
 
 // Track last search completion to enforce a small cooldown between searches
 let lastSearchEndTime = 0;
 
 export class GeminiService {
+  private ai: GoogleGenAI | null = null;
+
+  private getAI() {
+    if (!this.ai) {
+      // In this environment, GEMINI_API_KEY is automatically injected.
+      // We must call Gemini from the frontend as per platform guidelines.
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("GEMINI_API_KEY is missing. Please ensure it is set in the environment.");
+      }
+      this.ai = new GoogleGenAI({ apiKey });
+    }
+    return this.ai;
+  }
+
   /**
    * Checks server health.
    */
@@ -18,23 +34,37 @@ export class GeminiService {
   }
 
   /**
-   * Fetches location suggestions using backend API.
+   * Fetches location suggestions using Gemini directly from frontend.
    */
   async suggestLocations(input: string): Promise<LocationSuggestion[]> {
     if (!input || input.trim().length < 2) return [];
 
     try {
-      const response = await fetch("/api/suggestions/locations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
+      const ai = this.getAI();
+      const modelName = 'gemini-3-flash-preview'; 
+      const prompt = `Quickly list 5 real-world locations (City, State/Country) matching "${input}". Return as JSON array of {name, description}.`;
+
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "City or location name" },
+                description: { type: Type.STRING, description: "State, Country or region" }
+              },
+              required: ["name", "description"]
+            }
+          }
+        },
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to fetch suggestions");
-      }
-      return await response.json();
+      const text = response.text || "[]";
+      return JSON.parse(text);
     } catch (error: any) {
       console.error("Location Suggestion Error:", error);
       return [];
@@ -42,23 +72,30 @@ export class GeminiService {
   }
 
   /**
-   * Fetches niche/category suggestions using backend API.
+   * Fetches niche/category suggestions using Gemini directly from frontend.
    */
   async suggestNiches(input: string): Promise<string[]> {
     if (!input || input.trim().length < 2) return [];
 
     try {
-      const response = await fetch("/api/suggestions/niches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
+      const ai = this.getAI();
+      const modelName = 'gemini-3-flash-preview'; 
+      const prompt = `Quickly list 5 business categories or niches matching "${input}". Return as a simple JSON string array.`;
+
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        },
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to fetch niche suggestions");
-      }
-      return await response.json();
+      const text = response.text || "[]";
+      return JSON.parse(text);
     } catch (error: any) {
       console.error("Niche Suggestion Error:", error);
       return [];
@@ -66,17 +103,16 @@ export class GeminiService {
   }
 
   /**
-   * Fetches businesses using backend API.
-   * Parallelizes batches to significantly improve speed.
+   * Fetches businesses using Gemini directly from frontend.
    */
   async searchBusinesses(
     params: SearchParams, 
     onProgress: (p: number, msg: string) => void,
     onResults?: (results: Business[]) => void
   ): Promise<Business[]> {
-    const { limit } = params;
+    const { limit, location, niche } = params;
     
-    // Enforce a minimum cooldown between searches to protect the free API quota
+    // Cooldown check
     const now = Date.now();
     const cooldownMs = 5000;
     if (now - lastSearchEndTime < cooldownMs) {
@@ -98,18 +134,47 @@ export class GeminiService {
       if (currentBatchTarget <= 0) return [];
 
       try {
-        const response = await fetch("/api/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ params, batchIdx, currentBatchTarget }),
+        const ai = this.getAI();
+        const modelName = 'gemini-3-flash-preview';
+        const prompt = `
+          DATA_EXTRACTION_MODE: ACTIVE
+          TASK: Find and list ${currentBatchTarget} unique businesses.
+          NICHE: "${niche}"
+          LOCATION: "${location}"
+          
+          INSTRUCTIONS:
+          - Use Google Search to find real, active businesses.
+          - Include all relevant businesses matching the niche.
+          - Ensure data accuracy for phone numbers and addresses.
+          
+          OUTPUT_FIELDS:
+          - name
+          - address
+          - phone
+          - website
+          - profileLink (Google Maps URL or Business Page)
+          - rating (number)
+          - reviewCount (number)
+
+          FORMAT: PURE_JSON_ARRAY
+          NO_TEXT_OUTSIDE_JSON
+        `;
+
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.1,
+          },
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw { status: response.status, message: errorData.error || "Search failed" };
-        }
-
-        const rawResults = await response.json();
+        const text = response.text || "";
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        
+        if (!jsonMatch) return [];
+        
+        const rawResults = JSON.parse(jsonMatch[0]);
         const processedResults: Business[] = [];
 
         rawResults.forEach((item: any, idx: number) => {
@@ -139,12 +204,11 @@ export class GeminiService {
       } catch (error: any) {
         console.error(`Batch ${batchIdx} error:`, error);
         
-        // Check for rate limit (429)
-        if (error?.status === 429 || error?.message?.includes('429')) {
+        if (error?.message?.includes('429')) {
           const waitSeconds = 10;
           onProgress(
             Math.round(10 + (completedBatches / maxBatches) * 85), 
-            `To help the environment and keep this app free, we recommend you to wait for ${waitSeconds} seconds. Managing pause time...`
+            `Rate limit reached. Waiting ${waitSeconds} seconds...`
           );
           await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
           return executeBatchWithRetry(batchIdx, retryCount); 
@@ -160,7 +224,6 @@ export class GeminiService {
 
     let completedBatches = 0;
     try {
-      // Execute batches in parallel with a slight delay to avoid burst limits
       const batchPromises = Array.from({ length: maxBatches }).map(async (_, i) => {
         await new Promise(resolve => setTimeout(resolve, i * 150)); 
         const batchResults = await executeBatchWithRetry(i);
